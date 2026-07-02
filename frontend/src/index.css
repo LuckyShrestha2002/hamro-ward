@@ -1,0 +1,251 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Public Sans', 'Noto Sans Devanagari', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: #f5f6fb;
+    color: #1a365d;
+    line-height: 1.55;
+  }
+
+  /* Consistent, accessible focus ring on all interactive elements. */
+  a,
+  button,
+  select,
+  input,
+  textarea,
+  [tabindex]:not([tabindex='-1']) {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/55 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+
+  ::selection {
+    @apply bg-blue-600/15;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Standard surface card — matches the design's soft border + layered shadow. */
+  .card {
+    @apply rounded-2xl border bg-white;
+    border-color: #e6eaf0;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 8px 22px rgba(15, 23, 42, 0.04);
+  }
+
+  /* Primary action button. */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-60;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.26);
+  }
+
+  /* Secondary / outline button. */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50;
+    border-color: #d6dce6;
+  }
+
+  /* Form primitives. */
+  .field-label {
+    @apply mb-1.5 block text-xs font-bold text-slate-600;
+  }
+  .field-input {
+    @apply w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-medium text-slate-900 placeholder:font-normal placeholder:text-slate-400 transition focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+    border-color: #d6dce6;
+  }
+
+  /* Small blue step badge used on the report flow. */
+  .step-badge {
+    @apply flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-xs font-extrabold text-blue-600;
+  }
+}
+
+/* Material Symbols icon font. */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Reports feed card: subtle lift on hover. */
+.report-card {
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s ease-in-out;
+}
+.report-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px -5px rgba(0, 32, 69, 0.1);
+}
+
+/* Devanagari font for Nepali text. */
+.np {
+  font-family: 'Noto Sans Devanagari', 'Mangal', 'Kalimati', system-ui, sans-serif;
+}
+
+/* Long-form Nepali (letters/nibedan): looser leading for readability. */
+.np-body {
+  font-family: 'Noto Sans Devanagari', 'Mangal', 'Kalimati', system-ui, sans-serif;
+  line-height: 2;
+  letter-spacing: 0.01em;
+}
+
+@keyframes hwspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Landing hero: animated isometric workflow illustration ---- */
+@keyframes hw-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@keyframes hw-float-2 {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+@keyframes hw-scan {
+  0% {
+    top: 6%;
+  }
+  100% {
+    top: 90%;
+  }
+}
+@keyframes hw-dash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+@keyframes hw-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes hw-bar {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--w);
+  }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  [data-hw-scaler] * {
+    animation: none !important;
+  }
+}
+
+/* ---- Leaflet look & feel: modern, Google-Maps-like ---- */
+.leaflet-container {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  background: #eef2f6;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+  padding: 4px;
+}
+.leaflet-popup-content {
+  margin: 10px 12px;
+}
+.leaflet-control-zoom {
+  border: none !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+}
+.leaflet-control-zoom a {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+  color: #334155;
+  border: none;
+  font-size: 18px;
+}
+.leaflet-control-zoom a:hover {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.leaflet-bar a:first-child {
+  border-bottom: 1px solid #e2e8f0;
+}
+.hw-marker,
+.hw-num-pin,
+.hw-cluster {
+  background: transparent;
+  border: none;
+}
+.hw-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(45deg);
+  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.4);
+}
+.hw-pin::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 7px;
+  height: 7px;
+  background: #fff;
+  border-radius: 50%;
+}
