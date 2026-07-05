@@ -79,3 +79,18 @@ export async function reverseGeocode(lat: number, lng: number): Promise<ReverseG
   if (!res.ok) throw new Error((data as { error?: string })?.error || 'Reverse geocoding failed.');
   return data as ReverseGeocodeResult;
 }
+
+export interface PlaceResult {
+  name: string;
+  display: string;
+  lat: number;
+  lon: number;
+  type: string | null;
+}
+
+export async function searchPlaces(q: string, signal?: AbortSignal): Promise<PlaceResult[]> {
+  const res = await fetch(`/api/geocode-search?q=${encodeURIComponent(q)}`, { signal });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error || 'Place search failed.');
+  return ((data as { results?: PlaceResult[] }).results ?? []);
+}

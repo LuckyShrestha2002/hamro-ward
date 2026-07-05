@@ -65,7 +65,7 @@ begin
   insert into public.reports (
     category, severity, description_en, description_np, ward, municipality,
     location, latitude, longitude, reporter_name, contact, nibedan,
-    english_letter, recommendation, image_url
+    english_letter, recommendation, ai_confidence, image_url
   ) values (
     payload->>'category',
     payload->>'severity',
@@ -82,6 +82,7 @@ begin
     payload->>'english_letter',
     case when jsonb_typeof(payload->'recommendation') = 'object'
          then payload->'recommendation' else null end,
+    least(100, greatest(0, nullif(payload->>'ai_confidence','')::integer)),
     payload->>'image_url'
   )
   returning * into rec;
@@ -136,11 +137,13 @@ grant execute on function public.list_active_reports_min()       to anon, authen
 -- Because get_report_by_tracking_id() returns a full row to anyone with the ID,
 -- the ID must not be enumerable. New reports become CMP-2026-0007-A3F9C1;
 -- existing rows keep their old IDs. (Mirrors schema.sql.)
+-- search_path includes `extensions` because on Supabase pgcrypto (and its
+-- gen_random_bytes) is installed there, not in public.
 create or replace function public.generate_tracking_id()
 returns text
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   yr  int := extract(year from now())::int;
@@ -158,3 +161,16 @@ begin
   return 'CMP-' || yr || '-' || lpad(nxt::text, 4, '0') || '-' || tok;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Realtime: stream new-report INSERTs to signed-in dashboards
+-- ---------------------------------------------------------------------------
+-- The admin navbar's notification bell subscribes to INSERTs on
+-- public.reports. RLS still applies to the stream: only authenticated staff
+-- receive the rows; anonymous clients get nothing.
+do $$
+begin
+  alter publication supabase_realtime add table public.reports;
+exception
+  when duplicate_object then null;  -- already in the publication
+end $$;

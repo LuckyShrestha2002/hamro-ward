@@ -36,10 +36,14 @@ create table if not exists public.reports (
   nibedan         text,                              -- Nepali निवेदन
   english_letter  text,                              -- bilingual phase
   recommendation  jsonb,                             -- AI recommendation phase
+  ai_confidence   integer,                           -- vision model's certainty, 0–100
   image_url       text,
   status          text not null default 'Reported',  -- Reported | Under Review | In Progress | Resolved
   created_at      timestamptz not null default now()
 );
+
+-- Existing databases: add the column without recreating the table.
+alter table public.reports add column if not exists ai_confidence integer;
 
 create index if not exists reports_created_at_idx on public.reports (created_at desc);
 create index if not exists reports_category_idx   on public.reports (category);
@@ -67,11 +71,13 @@ create table if not exists public.report_counters (
 
 -- SECURITY DEFINER so the trigger can update report_counters even though that
 -- table has RLS enabled with no public policies (it stays inaccessible to anon).
+-- search_path includes `extensions` because on Supabase pgcrypto (and its
+-- gen_random_bytes) is installed there, not in public.
 create or replace function public.generate_tracking_id()
 returns text
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   yr  int := extract(year from now())::int;

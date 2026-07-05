@@ -18,6 +18,8 @@ export interface Detection {
   description_en: string;
   description_np: string;
   severity: Severity | string;
+  /** Model's self-reported certainty (0–100), null when unavailable. */
+  confidence?: number | null;
 }
 
 /** A report row as stored in / read from Supabase. */
@@ -38,6 +40,8 @@ export interface Report {
   nibedan: string | null;
   english_letter: string | null;
   recommendation: Recommendation | null;
+  /** Vision model's certainty (0–100) captured at submission, null when unknown. */
+  ai_confidence: number | null;
   image_url: string | null;
   status: ReportStatus;
   created_at: string;

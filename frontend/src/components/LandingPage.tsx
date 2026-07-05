@@ -63,7 +63,7 @@ export default function LandingPage() {
             'radial-gradient(900px 560px at 86% 26%, #E9EEFB 0%, rgba(233,238,251,0) 62%), #F5F6FB',
         }}
       >
-        <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)]">
+        <div className="mx-auto grid max-w-[1400px] items-center gap-12 px-6 py-16 sm:px-12 lg:gap-16 lg:px-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)]">
           {/* LEFT */}
           <div className="min-w-0">
             <div className="mb-7 inline-flex items-center gap-2 rounded-full bg-[#E8EDFB] px-4 py-2">
@@ -89,7 +89,7 @@ export default function LandingPage() {
               Report Local Problems Directly to Your Ward
             </h1>
 
-            <p className="mb-9 max-w-[520px] text-lg font-medium leading-relaxed text-[#4A5A78]">
+            <p className="mb-9 max-w-[560px] text-lg font-medium leading-relaxed text-[#4A5A78]">
               Upload a photo of local issues — broken street lights, waste, damaged roads, or leaks.
               Our AI instantly generates an official{' '}
               <span className="font-bold text-[#1a365d]">Nibedan</span> and sends it to your Ward
@@ -99,40 +99,21 @@ export default function LandingPage() {
             <div className="mb-12 flex flex-wrap items-center gap-4">
               <Link
                 to="/report"
-                className="inline-flex items-center gap-3 rounded-xl px-7 py-4 text-base font-bold text-white transition hover:brightness-110"
+                className="inline-flex items-center gap-2.5 rounded-full px-7 py-4 text-base font-bold text-white transition hover:brightness-110"
                 style={{
                   background: '#1a365d',
                   boxShadow: '0 16px 30px -12px rgba(11,27,63,.55)',
                 }}
               >
-                Submit Complaint
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M5 12h14M13 6l6 6-6 6"
-                    stroke="#fff"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                <span className="text-xl leading-none">＋</span>
+                Report
               </Link>
               <a
                 href="#how-it-works"
-                className="rounded-xl border-[1.5px] border-[#CDD3E4] bg-white px-7 py-4 text-base font-bold text-[#1a365d] transition hover:bg-[#F5F7FC]"
+                className="rounded-full border-[1.5px] border-[#CDD3E4] bg-white px-7 py-4 text-base font-bold text-[#1a365d] transition hover:bg-[#F5F7FC]"
               >
                 Learn More
               </a>
-              <Link
-                to="/admin"
-                className="inline-flex items-center gap-2 rounded-xl px-5 py-4 text-base font-bold text-[#4A5A78] transition hover:text-[#1a365d]"
-                title="Ward authority login"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <rect x="4.5" y="10.5" width="15" height="10" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
-                  <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                </svg>
-                Authority Login
-              </Link>
             </div>
 
             {/* Live updates */}

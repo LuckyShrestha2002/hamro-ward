@@ -213,7 +213,9 @@ export default function HeroWorkflow() {
 
     const fit = () => {
       const avail = col.clientWidth;
-      const s = Math.min(1, Math.max(0.5, avail / 600));
+      // Allow the artwork to grow up to 118% in wide hero columns so it reads
+      // as the visual focal point (still shrinks down to 50% on narrow screens).
+      const s = Math.min(1.18, Math.max(0.5, avail / 600));
       scaler.style.transform = `translate(-50%,-50%) scale(${s})`;
       col.style.height = `${640 * s}px`;
     };

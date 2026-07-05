@@ -14,6 +14,7 @@ export const MUNICIPALITIES: Municipality[] = [
   { name: 'Kathmandu Metropolitan City', nameNp: 'काठमाडौं महानगरपालिका', wardCount: 32 },
   { name: 'Lalitpur Metropolitan City', nameNp: 'ललितपुर महानगरपालिका', wardCount: 29 },
   { name: 'Bhaktapur Municipality', nameNp: 'भक्तपुर नगरपालिका', wardCount: 10 },
+  { name: 'Suryabinayak Municipality', nameNp: 'सूर्यविनायक नगरपालिका', wardCount: 10 },
 ];
 
 export const DEFAULT_MUNICIPALITY = MUNICIPALITIES[0].name;

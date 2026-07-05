@@ -1,9 +1,4 @@
-import { Link, NavLink } from 'react-router-dom';
-
-const navLink = ({ isActive }: { isActive: boolean }) =>
-  `whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
-    isActive ? 'bg-[#E8EDFB] text-[#1a365d]' : 'text-[#4A5A78] hover:text-[#1a365d]'
-  }`;
+import { Link } from 'react-router-dom';
 
 /** Light navbar for the public (citizen) area. */
 export default function PublicNavbar() {
@@ -26,12 +21,7 @@ export default function PublicNavbar() {
           </span>
         </Link>
 
-        {/* Center links */}
-        <nav className="flex min-w-0 flex-1 items-center justify-center gap-1">
-          <NavLink to="/track" className={navLink}>
-            Track Complaint
-          </NavLink>
-        </nav>
+        <div className="min-w-0 flex-1" />
 
         {/* Right actions */}
         <div className="flex flex-shrink-0 items-center gap-3">
@@ -45,15 +35,6 @@ export default function PublicNavbar() {
               <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
             </svg>
             Authority
-          </Link>
-          <Link
-            to="/report"
-            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110"
-            style={{ background: '#1a365d', boxShadow: '0 8px 18px -8px rgba(11,27,63,.6)' }}
-          >
-            <span className="text-base leading-none">＋</span>
-            <span className="hidden sm:inline">Report an Issue</span>
-            <span className="sm:hidden">Report</span>
           </Link>
         </div>
       </div>

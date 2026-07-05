@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
   KATHMANDU,
@@ -11,7 +11,7 @@ import {
 } from '../lib/leafletSetup';
 import { computeAnalytics } from '../lib/analytics';
 import { MUNICIPALITIES } from '../data/wards';
-import { timeAgo, formatDateTime } from '../lib/format';
+import { timeAgo } from '../lib/format';
 import StatusBadge from './ui/StatusBadge';
 import EmptyState from './ui/EmptyState';
 import Skeleton from './ui/Skeleton';
@@ -188,6 +188,7 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMenuOpen, setDrawerMenuOpen] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
 
   const set = (k: keyof Filters, v: string) => setFilters((f) => ({ ...f, [k]: v }));
@@ -219,6 +220,17 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
     () => filtered.filter((r) => r.latitude != null && r.longitude != null),
     [filtered],
   );
+
+  // Ward options for the filter dropdown (scoped to the selected municipality).
+  const wardOptions = useMemo(() => {
+    const wards = new Set<string>();
+    reports.reports.forEach((r) => {
+      if (!r.ward) return;
+      if (filters.muni !== 'All' && r.municipality !== filters.muni) return;
+      wards.add(r.ward);
+    });
+    return [...wards].sort((x, y) => Number(x) - Number(y));
+  }, [reports.reports, filters.muni]);
 
   // Ward activity ranking (from the current filtered view).
   const wardRank = useMemo(() => {
@@ -260,19 +272,6 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
     return { segs, legend, total };
   }, [a]);
 
-  // Derived "AI" summary — grounded entirely in the filtered reports.
-  const insight = useMemo(() => {
-    const top = [...a.byCategory].sort((x, y) => y.value - x.value)[0];
-    const hot = wardRank[0];
-    const pendingInHot = hot ? filtered.filter((r) => r.ward === hot.ward && r.status !== 'Resolved').length : 0;
-    return {
-      top,
-      topPct: top && a.total ? Math.round((top.value / a.total) * 100) : 0,
-      hot,
-      pendingInHot,
-    };
-  }, [a, wardRank, filtered]);
-
   const recent = useMemo(
     () => [...filtered].sort((x, y) => +new Date(y.created_at) - +new Date(x.created_at)).slice(0, 8),
     [filtered],
@@ -305,7 +304,7 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
   const selCat = selected ? catStyle(selected.category) : null;
 
   return (
-    <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:h-[calc(100vh-4rem)] lg:px-8">
+    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-4 sm:px-8 lg:h-[calc(100vh-4rem)] lg:px-10">
       {!reports.configured ? (
         <EmptyState
           tone="warning"
@@ -348,59 +347,73 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(330px,3fr)]">
             {/* Left: filters + map */}
             <div className="flex min-h-0 flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="relative flex min-w-[160px] max-w-[260px] flex-1 items-center">
-                  <Icon name="search" className="pointer-events-none absolute left-3 text-[18px] text-slate-400" />
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="relative flex min-w-[200px] max-w-[380px] flex-1 items-center">
+                  <Icon name="search" className="pointer-events-none absolute left-3.5 text-[18px] text-slate-400" />
                   <input
                     value={filters.q}
                     onChange={(e) => set('q', e.target.value)}
                     placeholder="Search location, ward or ID…"
-                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded-full border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm font-medium text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                   />
                 </label>
-                <div className="relative">
+                <div className="relative min-w-[200px]">
                   <select
                     value={filters.muni}
-                    onChange={(e) => set('muni', e.target.value)}
+                    onChange={(e) => setFilters((f) => ({ ...f, muni: e.target.value, ward: 'all' }))}
                     aria-label="Filter by municipality"
-                    className="appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3.5 pr-8 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-blue-500"
+                    className="w-full appearance-none rounded-full border border-slate-200 bg-white py-2 pl-4 pr-9 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-blue-500"
                   >
-                    <option value="All">All municipalities</option>
+                    <option value="All">All Municipalities</option>
                     {MUNICIPALITIES.map((m) => (
                       <option key={m.name} value={m.name}>
                         {m.name}
                       </option>
                     ))}
                   </select>
-                  <Icon name="expand_more" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
+                  <Icon name="expand_more" className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
                 </div>
-                <FilterSelect value={filters.cat} onChange={(v) => set('cat', v)} label="All issue types" options={a.byCategory.map((c) => c.name)} />
-                <FilterSelect value={filters.status} onChange={(v) => set('status', v)} label="Any status" options={STATUS_FILTERS} />
-                <FilterSelect value={filters.range} onChange={(v) => set('range', v)} label="All time" options={['7d', '30d', '90d']} labels={{ '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' }} />
-                {activeCount > 0 && (
+                <FilterSelect
+                  value={filters.ward}
+                  onChange={(v) => set('ward', v)}
+                  label="All Wards"
+                  options={wardOptions}
+                  labels={Object.fromEntries(wardOptions.map((w) => [w, `Ward ${w}`]))}
+                  minWidth="min-w-[170px]"
+                />
+                <FilterSelect value={filters.status} onChange={(v) => set('status', v)} label="Any Status" options={STATUS_FILTERS} minWidth="min-w-[140px]" />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <FilterSelect value={filters.cat} onChange={(v) => set('cat', v)} label="All Issue Types" options={a.byCategory.map((c) => c.name)} minWidth="min-w-[190px]" />
+                <FilterSelect value={filters.range} onChange={(v) => set('range', v)} label="All Time" options={['7d', '30d', '90d']} labels={{ '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' }} minWidth="min-w-[130px]" />
+                <div className="ml-auto flex items-center gap-3">
+                  {activeCount > 0 && (
+                    <button
+                      onClick={() => setFilters((f) => ({ ...f, ward: 'all', cat: 'all', status: 'all', range: 'all', q: '' }))}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                    >
+                      <Icon name="close" className="text-[16px]" />
+                      Reset
+                    </button>
+                  )}
                   <button
-                    onClick={() => setFilters((f) => ({ ...f, ward: 'all', cat: 'all', status: 'all', range: 'all', q: '' }))}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                    type="button"
+                    onClick={() => exportCsv(filtered)}
+                    disabled={a.total === 0}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-[#1a365d] shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
                   >
-                    <Icon name="close" className="text-[16px]" />
-                    Reset
+                    <Icon name="download" className="text-[18px] text-slate-400" />
+                    Export
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => exportCsv(filtered)}
-                  disabled={a.total === 0}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-[#1a365d] shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <Icon name="download" className="text-[18px] text-slate-400" />
-                  Export
-                </button>
-                <span className="whitespace-nowrap text-xs font-semibold text-slate-500">
-                  Showing <b style={{ color: NAVY }}>{filtered.length}</b> of {reports.reports.length}
-                </span>
+                  <span className="whitespace-nowrap text-sm font-medium text-slate-500">
+                    Showing <b style={{ color: NAVY }}>{filtered.length}</b> of {reports.reports.length}
+                  </span>
+                </div>
               </div>
 
-              <div className="relative min-h-[360px] flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
+              {/* z-0 creates a stacking context so leaflet's high-z panes stay
+                  trapped inside and never overlap the navbar dropdowns. */}
+              <div className="relative z-0 min-h-[360px] flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
                 <MapContainer center={KATHMANDU} zoom={13} className="absolute inset-0 h-full w-full" scrollWheelZoom zoomControl={false}>
                   <TileLayer attribution={TILE_ATTRIBUTION} url={TILE_URL} detectRetina />
                   <ClusterLayer reports={located} selected={selectedId} onSelect={openComplaint} mapRef={mapRef} />
@@ -476,59 +489,6 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
                     </div>
                   </div>
 
-                  {/* AI civic intelligence (derived) */}
-                  <div
-                    className="relative overflow-hidden rounded-2xl p-4 text-white"
-                    style={{ background: 'linear-gradient(158deg,#1a365d,#22439c 55%,#3b82f6 150%)', boxShadow: '0 18px 40px -22px rgba(30,58,138,.7)' }}
-                  >
-                    <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full" style={{ background: 'radial-gradient(circle,rgba(96,165,250,.5),transparent 70%)' }} />
-                    <div className="relative mb-3 flex items-center gap-2">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
-                        <Icon name="auto_awesome" filled className="text-[18px]" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-sm font-extrabold">Civic Intelligence</div>
-                        <div className="text-[10.5px] font-semibold text-white/70">Derived from live data</div>
-                      </div>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[9.5px] font-extrabold tracking-wider text-[#1a365d]">LIVE</span>
-                    </div>
-                    <div className="relative flex flex-col gap-2">
-                      <div className="flex items-center justify-between gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2.5">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Most Reported</div>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-sm font-extrabold">
-                            {insight.top ? `${catStyle(insight.top.name).emoji} ${insight.top.name}` : '—'}
-                          </div>
-                        </div>
-                        <div className="flex-shrink-0 text-lg font-extrabold">{insight.top?.value ?? 0}</div>
-                      </div>
-                      <div className="flex gap-2">
-                        <div className="flex-1 rounded-xl border border-white/15 bg-white/10 px-3 py-2.5">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Hotspot Ward</div>
-                          <div className="mt-0.5 text-sm font-extrabold">{insight.hot ? `Ward ${insight.hot.ward} 🔥` : '—'}</div>
-                          <div className="text-[11px] font-semibold text-white/75">{insight.hot ? `${insight.hot.count} reports` : 'no data'}</div>
-                        </div>
-                        <div className="flex-1 rounded-xl border border-white/15 bg-white/10 px-3 py-2.5">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Resolution</div>
-                          <div className="mt-0.5 text-sm font-extrabold">{a.resolutionRate}% closed</div>
-                          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/20">
-                            <div className="h-full rounded-full bg-emerald-400" style={{ width: `${a.resolutionRate}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-0.5 rounded-xl bg-white/95 p-3">
-                        <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-[#1a365d]">
-                          <Icon name="lightbulb" filled className="text-[14px]" />
-                          Recommended Action
-                        </div>
-                        <p className="mt-1.5 text-xs font-semibold leading-relaxed text-slate-600">
-                          {insight.hot && insight.top
-                            ? `Prioritize ${insight.top.name.toLowerCase()} response in Ward ${insight.hot.ward} — ${insight.pendingInHot} report${insight.pendingInHot === 1 ? '' : 's'} still pending. ${insight.top.name} makes up ${insight.topPct}% of complaints in this view.`
-                            : 'Not enough data yet to generate a recommendation.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
 
                   {/* Ward activity ranking */}
                   <div className="card p-4">
@@ -606,88 +566,299 @@ export default function DashboardPage({ reports }: { reports: UseReports }) {
         <div className="fixed inset-0 z-[1500] bg-slate-900/45 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} />
       )}
       <aside
-        className="fixed right-0 top-0 z-[1600] flex h-full w-[420px] max-w-[92vw] flex-col bg-white shadow-2xl transition-transform duration-300"
+        className="fixed right-0 top-0 z-[1600] flex h-full w-[1080px] max-w-[95vw] flex-col bg-[#f5f6fb] shadow-2xl transition-transform duration-300"
         style={{ transform: drawerOpen ? 'translateX(0)' : 'translateX(105%)' }}
       >
         {selected && selCat && (
           <>
-            <div className="flex flex-shrink-0 items-center gap-3 border-b border-slate-100 px-5 py-4">
+            <div className="flex flex-shrink-0 items-center gap-3 border-b border-slate-100 bg-white px-6 py-4">
               <div>
                 <div className="text-sm font-extrabold" style={{ color: NAVY }}>
                   Complaint Details
                 </div>
                 <div className="mt-0.5 font-mono text-[11px] font-semibold text-slate-400">{selected.tracking_id ?? selected.id.slice(0, 8)}</div>
               </div>
-              <button onClick={() => setDrawerOpen(false)} className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50">
-                <Icon name="close" className="text-[18px] text-slate-500" />
-              </button>
+              <div className="ml-auto flex items-center gap-1.5">
+                <div className="relative">
+                  <button
+                    onClick={() => setDrawerMenuOpen((o) => !o)}
+                    aria-label="More actions"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 transition hover:bg-slate-50"
+                  >
+                    <Icon name="more_horiz" className="text-[18px] text-slate-500" />
+                  </button>
+                  {drawerMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setDrawerMenuOpen(false)} />
+                      <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-xl border border-slate-100 bg-white py-1.5 shadow-lg">
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard.writeText(selected.tracking_id ?? selected.id);
+                            setDrawerMenuOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <Icon name="content_copy" className="text-[16px] text-slate-400" />
+                          Copy tracking ID
+                        </button>
+                        <Link
+                          to={`/track?id=${selected.tracking_id ?? ''}`}
+                          onClick={() => setDrawerMenuOpen(false)}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[13px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          <Icon name="open_in_new" className="text-[16px] text-slate-400" />
+                          Open full report
+                        </Link>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    setDrawerMenuOpen(false);
+                  }}
+                  aria-label="Close details"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 transition hover:bg-slate-50"
+                >
+                  <Icon name="close" className="text-[18px] text-slate-500" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              {selected.image_url ? (
-                <img src={selected.image_url} alt={selected.category} className="h-48 w-full object-cover" />
-              ) : (
-                <div className="flex h-40 items-center justify-center text-6xl" style={{ background: `linear-gradient(150deg,${selCat.color}2e,${selCat.color}14 60%,#f8fafc)` }}>
-                  {selCat.emoji}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-4 p-5">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge status={selected.status} />
-                    <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ color: prioColor(selected.severity), background: `${prioColor(selected.severity)}1f` }}>
-                      {selected.severity ?? 'Unknown'} priority
-                    </span>
-                    <span className="text-[11.5px] font-semibold text-slate-400">Reported {timeAgo(selected.created_at)}</span>
-                  </div>
-                  <div className="mt-2 text-xl font-extrabold tracking-tight" style={{ color: NAVY }}>
-                    {selected.category}
-                  </div>
-                </div>
-
-                {selected.description_en && (
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
-                    <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-600">
-                      <Icon name="auto_awesome" filled className="text-[13px]" />
-                      AI Analysis
+              <div className="flex flex-col gap-4 p-5 sm:p-6">
+                <div className="grid items-start gap-4 lg:grid-cols-2">
+                  {/* Evidence */}
+                  <div className="card p-3">
+                    <div className="group relative overflow-hidden rounded-xl border border-slate-200">
+                      {selected.image_url ? (
+                        <img
+                          src={selected.image_url}
+                          alt={selected.category}
+                          className="h-64 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                        />
+                      ) : (
+                        <div className="flex h-64 items-center justify-center text-7xl" style={{ background: `linear-gradient(150deg,${selCat.color}2e,${selCat.color}14 60%,#f8fafc)` }}>
+                          {selCat.emoji}
+                        </div>
+                      )}
+                      <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-lg bg-slate-900/60 px-2.5 py-1.5 text-[11.5px] font-bold text-white backdrop-blur">
+                        <Icon name="calendar_today" className="text-[13px]" />
+                        Reported {timeAgo(selected.created_at)}
+                      </span>
+                      {selected.image_url && (
+                        <a
+                          href={selected.image_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1.5 rounded-lg bg-slate-900/60 px-3 py-1.5 text-[11.5px] font-bold text-white backdrop-blur transition hover:bg-slate-900/80"
+                        >
+                          <Icon name="open_in_full" className="text-[13px]" />
+                          View full size
+                        </a>
+                      )}
                     </div>
-                    <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-slate-600">{selected.description_en}</p>
+                    <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1 pt-3">
+                      <StatusBadge status={selected.status} />
+                      <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ color: prioColor(selected.severity), background: `${prioColor(selected.severity)}1f` }}>
+                        {selected.severity ?? 'Unknown'} Priority
+                      </span>
+                      {selected.description_en && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                          <Icon name="verified" className="text-[13px]" />
+                          AI Verified
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
 
-                <div className="grid grid-cols-2 gap-x-3 gap-y-3.5">
-                  <Field label="Municipality" value={selected.municipality ?? '—'} />
-                  <Field label="Ward" value={selected.ward ? `Ward ${selected.ward}` : '—'} />
-                  <Field label="Location" value={selected.location ?? '—'} full />
-                  <Field label="Reporter" value={selected.reporter_name ?? 'Anonymous'} />
-                  <Field label="Contact" value={selected.contact ?? '—'} mono />
-                  <Field label="Submitted" value={formatDateTime(selected.created_at)} full />
+                  {/* AI analysis */}
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2">
+                      <Icon name="auto_awesome" filled className="text-[18px] text-blue-600" />
+                      <h3 className="text-[15px] font-extrabold" style={{ color: NAVY }}>
+                        AI Analysis
+                      </h3>
+                      <Link
+                        to={`/track?id=${selected.tracking_id ?? ''}`}
+                        className="ml-auto rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95"
+                        style={{ background: '#e8edfb', color: NAVY }}
+                      >
+                        View details
+                      </Link>
+                    </div>
+                    <div className="mt-4 text-xs font-semibold text-slate-400">Detected Issue</div>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: `${selCat.color}1f` }}>
+                        {selCat.emoji}
+                      </span>
+                      <span className="text-lg font-extrabold tracking-tight" style={{ color: NAVY }}>
+                        {selected.category}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-400">Confidence Score</div>
+                        {selected.ai_confidence != null ? (
+                          <>
+                            <div className="mt-1 text-xl font-extrabold text-emerald-600">{selected.ai_confidence}%</div>
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-[width] duration-700"
+                                style={{ width: `${selected.ai_confidence}%` }}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="mt-1.5 text-sm font-bold text-slate-400">Not recorded</div>
+                        )}
+                      </div>
+                      <div className="border-l border-slate-100 pl-4">
+                        <div className="text-xs font-semibold text-slate-400">Severity</div>
+                        <div className="mt-1 flex items-center gap-1.5 text-xl font-extrabold" style={{ color: prioColor(selected.severity) }}>
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ background: prioColor(selected.severity) }} />
+                          {selected.severity ?? 'Unknown'}
+                        </div>
+                      </div>
+                    </div>
+                    {selected.description_en && (
+                      <div className="mt-4 border-t border-slate-100 pt-3.5">
+                        <div className="text-xs font-semibold text-slate-400">Summary</div>
+                        <p className="mt-1 text-[13.5px] font-medium leading-relaxed text-slate-600">{selected.description_en}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Complaint information */}
+                <div className="card p-5">
+                  <div className="flex items-center gap-2">
+                    <Icon name="account_balance" className="text-[18px] text-slate-400" />
+                    <h3 className="text-[15px] font-extrabold" style={{ color: NAVY }}>
+                      Complaint Information
+                    </h3>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-slate-100">
+                    <InfoCell icon="account_balance" label="Municipality" value={selected.municipality ?? '—'} first />
+                    <InfoCell icon="tag" label="Ward" value={selected.ward ? `Ward ${selected.ward}` : '—'} />
+                    <InfoCell icon="location_on" label="Location" value={selected.location ?? '—'} />
+                    <InfoCell icon="person" label="Reporter" value={selected.reporter_name ?? 'Anonymous'} />
+                    <InfoCell icon="call" label="Contact" value={selected.contact ?? '—'} mono />
+                  </div>
+                </div>
+
+                <div className="grid items-start gap-4 lg:grid-cols-[1.35fr_1fr]">
+                  {/* Location on map */}
+                  {selected.latitude != null && selected.longitude != null && (
+                    <div className="card p-5">
+                      <div className="flex items-center gap-2">
+                        <Icon name="location_on" className="text-[18px] text-slate-400" />
+                        <h3 className="text-[15px] font-extrabold" style={{ color: NAVY }}>
+                          Location on Map
+                        </h3>
+                      </div>
+                      <div className="mt-3.5 overflow-hidden rounded-xl border border-slate-200">
+                        <MapContainer
+                          key={selected.id}
+                          center={[selected.latitude, selected.longitude]}
+                          zoom={15}
+                          style={{ height: 220, width: '100%' }}
+                          dragging={false}
+                          scrollWheelZoom={false}
+                          doubleClickZoom={false}
+                          touchZoom={false}
+                          keyboard={false}
+                        >
+                          <TileLayer attribution={TILE_ATTRIBUTION} url={TILE_URL} detectRetina />
+                          <Marker
+                            position={[selected.latitude, selected.longitude]}
+                            icon={emojiPin(selCat.emoji, selCat.color, false)}
+                          />
+                        </MapContainer>
+                      </div>
+                      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3">
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-600">
+                          {[selected.location, selected.ward ? `Ward ${selected.ward}` : null, selected.municipality]
+                            .filter(Boolean)
+                            .join(', ') || `${selected.latitude.toFixed(5)}, ${selected.longitude.toFixed(5)}`}
+                        </span>
+                        <a
+                          href={`https://www.google.com/maps?q=${selected.latitude},${selected.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12.5px] font-bold transition hover:brightness-95"
+                          style={{ background: '#e8edfb', color: NAVY }}
+                        >
+                          Open in Maps
+                          <Icon name="open_in_new" className="text-[14px]" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Complaint timeline */}
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2">
+                      <Icon name="schedule" className="text-[18px] text-slate-400" />
+                      <h3 className="text-[15px] font-extrabold" style={{ color: NAVY }}>
+                        Complaint Timeline
+                      </h3>
+                    </div>
+                    <ol className="mt-4">
+                      {drawerTimeline(selected).map((s, i, arr) => (
+                        <li key={s.label} className="flex gap-3">
+                          <span className="flex flex-col items-center">
+                            <span
+                              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white"
+                              style={{ background: s.done ? s.color : s.next ? '#f59e0b' : '#cbd5e1' }}
+                            >
+                              <Icon name={s.icon} className="text-[14px]" />
+                            </span>
+                            {i < arr.length - 1 && (
+                              <span className={`w-0.5 flex-1 ${s.done ? 'bg-emerald-200' : 'bg-slate-200'}`} style={{ minHeight: 16 }} />
+                            )}
+                          </span>
+                          <div className={`flex min-w-0 flex-1 items-start justify-between gap-3 ${i < arr.length - 1 ? 'pb-4' : ''}`}>
+                            <span className={`text-[13.5px] font-bold leading-6 ${s.done || s.next ? 'text-slate-800' : 'text-slate-400'}`}>
+                              {s.label}
+                            </span>
+                            <span className="flex-shrink-0 text-[12px] font-semibold leading-6 text-slate-400">
+                              {s.done ? (s.sub ?? '✓') : 'Pending'}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-shrink-0 gap-2 border-t border-slate-100 px-5 py-4">
+            <div className="flex flex-shrink-0 flex-wrap justify-end gap-2.5 border-t border-slate-100 bg-white px-6 py-4">
+              <Link
+                to={`/track?id=${selected.tracking_id ?? ''}`}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-[13px] font-extrabold text-[#1a365d] transition hover:-translate-y-px hover:bg-slate-50 hover:shadow-sm"
+              >
+                View Full Report
+              </Link>
               <button
                 onClick={() => reports.changeStatus(selected.id, 'In Progress')}
                 disabled={selected.status === 'In Progress'}
-                className="flex-1 rounded-xl bg-blue-500 py-2.5 text-[13px] font-extrabold text-white transition hover:brightness-110 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-[13px] font-extrabold text-blue-700 transition hover:-translate-y-px hover:shadow-md disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+                style={{ background: '#dce9ff' }}
               >
-                In Progress
+                <Icon name="sync" className="text-[16px]" />
+                Mark as In Progress
               </button>
               <button
                 onClick={() => reports.changeStatus(selected.id, 'Resolved')}
                 disabled={selected.status === 'Resolved'}
-                className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-[13px] font-extrabold text-white transition hover:brightness-110 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-5 py-2.5 text-[13px] font-extrabold text-white transition hover:-translate-y-px hover:shadow-md hover:brightness-110 disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none"
               >
-                Resolve
+                <Icon name="check_circle" filled className="text-[16px]" />
+                Resolve Complaint
               </button>
-              <Link
-                to={`/track?id=${selected.tracking_id ?? ''}`}
-                className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 py-2.5 text-[13px] font-extrabold text-[#1a365d] transition hover:bg-slate-50"
-              >
-                Full report
-              </Link>
             </div>
           </>
         )}
@@ -702,19 +873,22 @@ function FilterSelect({
   label,
   options,
   labels,
+  minWidth,
 }: {
   value: string;
   onChange: (v: string) => void;
   label: string;
   options: string[];
   labels?: Record<string, string>;
+  minWidth?: string;
 }) {
   return (
-    <div className="relative">
+    <div className={`relative ${minWidth ?? ''}`}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3.5 pr-8 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-blue-500"
+        aria-label={label}
+        className="w-full appearance-none rounded-full border border-slate-200 bg-white py-2 pl-4 pr-9 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-blue-500"
       >
         <option value="all">{label}</option>
         {options.map((o) => (
@@ -723,16 +897,72 @@ function FilterSelect({
           </option>
         ))}
       </select>
-      <Icon name="expand_more" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
+      <Icon name="expand_more" className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
     </div>
   );
 }
 
-function Field({ label, value, full = false, mono = false }: { label: string; value: string; full?: boolean; mono?: boolean }) {
+/** Icon-circle + label + value cell in the drawer's Complaint Information strip. */
+function InfoCell({
+  icon,
+  label,
+  value,
+  mono = false,
+  first = false,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  mono?: boolean;
+  first?: boolean;
+}) {
   return (
-    <div className={full ? 'col-span-2' : ''}>
-      <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">{label}</div>
-      <div className={`mt-0.5 text-[13.5px] font-semibold text-slate-800 ${mono ? 'font-mono' : ''}`}>{value}</div>
+    <div className={first ? '' : 'lg:pl-4'}>
+      <div className="flex items-start gap-2.5">
+        <span
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-slate-500"
+          style={{ background: '#eff4ff' }}
+        >
+          <Icon name={icon} className="text-[17px]" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold text-slate-400">{label}</div>
+          <div className={`break-words text-[13px] font-bold text-slate-800 ${mono ? 'font-mono' : ''}`}>
+            {value}
+          </div>
+        </div>
+      </div>
     </div>
   );
+}
+
+interface TimelineStage {
+  label: string;
+  icon: string;
+  color: string;
+  done: boolean;
+  next: boolean;
+  sub?: string;
+}
+
+/** Derive the drawer's progress timeline from a report's real state. */
+function drawerTimeline(r: Report): TimelineStage[] {
+  const idx = STATUS_FILTERS.indexOf(r.status); // Reported → Under Review → In Progress → Resolved
+  const submitted = timeAgo(r.created_at);
+  const stages = [
+    { label: 'Submitted', icon: 'check', color: '#10b981', done: true, sub: submitted },
+    {
+      label: 'AI Verified',
+      icon: 'auto_awesome',
+      color: '#3b82f6',
+      done: !!r.description_en,
+      sub: r.description_en ? submitted : undefined,
+    },
+    { label: 'Under Review', icon: 'assignment_ind', color: '#f59e0b', done: idx >= 1, sub: undefined },
+    { label: 'In Progress', icon: 'sync', color: '#3b82f6', done: idx >= 2, sub: undefined },
+    { label: 'Resolved', icon: 'check_circle', color: '#10b981', done: idx >= 3, sub: undefined },
+  ];
+  // Highlight the first incomplete stage as up-next (amber in the mock).
+  const nextIdx = stages.findIndex((s) => !s.done);
+  return stages.map((s, i) => ({ ...s, next: i === nextIdx }));
 }

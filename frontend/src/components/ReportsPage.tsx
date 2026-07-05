@@ -7,7 +7,7 @@ export default function ReportsPage({ reports }: { reports: UseReports }) {
   const showCount = reports.configured && !reports.loading && reports.reports.length > 0;
 
   return (
-    <div className="px-4 py-10 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-8 lg:px-10">
       <div className="mb-8 flex flex-col items-start justify-between gap-5 md:flex-row md:items-end">
         <div>
           <h1

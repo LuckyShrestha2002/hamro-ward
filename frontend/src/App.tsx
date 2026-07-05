@@ -24,8 +24,8 @@ export default function App() {
       <Route path="/track" element={<PublicLayout><TrackPage /></PublicLayout>} />
 
       {/* Authority (passcode-gated) */}
-      <Route path="/admin" element={<AdminLayout><DashboardPage reports={reportsState} /></AdminLayout>} />
-      <Route path="/admin/reports" element={<AdminLayout><ReportsPage reports={reportsState} /></AdminLayout>} />
+      <Route path="/admin" element={<AdminLayout reports={reportsState}><DashboardPage reports={reportsState} /></AdminLayout>} />
+      <Route path="/admin/reports" element={<AdminLayout reports={reportsState}><ReportsPage reports={reportsState} /></AdminLayout>} />
 
       {/* Redirects for the old routes */}
       <Route path="/dashboard" element={<Navigate to="/admin" replace />} />

@@ -8,7 +8,9 @@ export interface UseReports {
   loading: boolean;
   error: string;
   configured: boolean;
-  refresh: () => Promise<void>;
+  /** Reload from Supabase. `quiet` skips the loading/error UI state — used by
+   * background updates (realtime events, polling) so screens don't flash. */
+  refresh: (opts?: { quiet?: boolean }) => Promise<void>;
   changeStatus: (id: string, status: ReportStatus) => Promise<void>;
   prepend: (report: Report) => void;
 }
@@ -21,19 +23,23 @@ export function useReports(): UseReports {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!isSupabaseConfigured) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError('');
+    const quiet = opts?.quiet === true;
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       setReports(await listReports());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load reports.');
+      // Background refreshes fail silently — the next one will retry.
+      if (!quiet) setError(err instanceof Error ? err.message : 'Failed to load reports.');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 

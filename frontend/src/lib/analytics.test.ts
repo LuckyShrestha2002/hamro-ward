@@ -22,6 +22,7 @@ function report(p: Partial<Report> = {}): Report {
     nibedan: null,
     english_letter: null,
     recommendation: null,
+    ai_confidence: null,
     image_url: null,
     status: 'Reported',
     created_at: '2026-06-15T10:00:00.000Z',

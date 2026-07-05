@@ -183,9 +183,27 @@
   }
 }
 
+/* Upload success: a gentle fade + settle for the evidence photo. */
+@keyframes hw-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hw-pop {
+  animation: hw-pop 0.35s ease-out;
+}
+
 /* Respect users who prefer reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   [data-hw-scaler] * {
+    animation: none !important;
+  }
+  .hw-pop {
     animation: none !important;
   }
 }

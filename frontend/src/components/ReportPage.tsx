@@ -1,11 +1,10 @@
-import { useState, lazy, Suspense } from 'react';
+import { useMemo, useState, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import {
   fileToBase64,
   categorizeImage,
   generateNibedan,
   getRecommendation,
-  reverseGeocode,
   type ImagePayload,
   type LetterLanguage,
 } from '../lib/api';
@@ -21,7 +20,8 @@ import {
 } from '../data/wards';
 import { SeverityBadge, CategoryBadge } from './Badges';
 import DownloadPdfButton from './DownloadPdfButton';
-import { type LatLng } from './LocationPicker';
+import { type LatLng, type PickedLocation } from './LocationPicker';
+import { extractExifGps } from '../lib/exif';
 import RecommendationCard from './RecommendationCard';
 import type { Detection, Recommendation, Report, Severity } from '../types';
 import type { UseReports } from '../hooks/useReports';
@@ -66,12 +66,65 @@ function StepBadge({ n }: { n: number }) {
   );
 }
 
+/** One tile in the evidence-information strip under the uploaded photo. */
+function EvidenceStat({
+  icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: 'good';
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition hover:border-slate-200 hover:shadow-md">
+      <div className="flex items-center gap-2">
+        <span
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-slate-500"
+          style={{ background: '#eff4ff' }}
+        >
+          <Icon name={icon} className="text-[15px]" />
+        </span>
+        <span className="truncate text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+          {label}
+        </span>
+      </div>
+      <div
+        className={`mt-2 truncate text-[13.5px] font-bold ${
+          tone === 'good' ? 'text-emerald-600' : 'text-slate-800'
+        }`}
+      >
+        {value}
+      </div>
+      <div className="h-4 truncate text-[11px] font-semibold text-slate-400">{sub ?? ''}</div>
+    </div>
+  );
+}
+
+function formatBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function ReportPage({ reports }: { reports: UseReports }) {
   // Image + categorization state
   const [file, setFile] = useState<File | null>(null);
   const [imageData, setImageData] = useState<ImagePayload | null>(null);
   const [detection, setDetection] = useState<Detection | null>(null);
   const [categorizing, setCategorizing] = useState(false);
+  // Evidence metadata for the info strip (dimensions read from the data URL).
+  const [imageInfo, setImageInfo] = useState<{
+    width: number;
+    height: number;
+    size: number;
+    uploadedAt: Date;
+  } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // AI recommendation
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -85,12 +138,13 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
   // Drives the preview letterhead so it doesn't assume Kathmandu before any choice.
   const [municipalityChosen, setMunicipalityChosen] = useState(false);
   const [ward, setWard] = useState('');
-  const [geoNote, setGeoNote] = useState('');
   const [location, setLocation] = useState('');
   const [citizenName, setCitizenName] = useState('');
   const [contact, setContact] = useState('');
   const [extra, setExtra] = useState('');
-  const [coords, setCoords] = useState<LatLng | null>(null);
+  const [picked, setPicked] = useState<PickedLocation | null>(null);
+  // GPS coordinates found in the uploaded photo's EXIF, offered as a shortcut.
+  const [photoCoords, setPhotoCoords] = useState<LatLng | null>(null);
 
   // Letter state (bilingual)
   const [npText, setNpText] = useState('');
@@ -100,6 +154,29 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
   const [copied, setCopied] = useState(false);
 
   const activeText = lang === 'np' ? npText : enText;
+
+  // Pull the "मिति: …" / "Date: …" and "विषय: …" / "Subject: …" lines out of
+  // the generated letter so the preview can place them like a real nibedan
+  // (date right-aligned, subject centered).
+  const letter = useMemo(() => {
+    let lines = activeText.split('\n');
+    let date = '';
+    const i = lines.findIndex((l) => l.trim() !== '');
+    if (i !== -1 && /^(मिति|Date)\s*[:：]/.test(lines[i].trim())) {
+      date = lines[i].trim();
+      lines = lines.slice(i + 1);
+    }
+    const si = lines.findIndex((l) => /^(विषय|Subject)\s*[:：]/.test(l.trim()));
+    if (si === -1) {
+      return { date, before: '', subject: '', after: lines.join('\n').replace(/^\n+/, '') };
+    }
+    return {
+      date,
+      before: lines.slice(0, si).join('\n').replace(/^\n+/, '').replace(/\n+$/, ''),
+      subject: lines[si].trim(),
+      after: lines.slice(si + 1).join('\n').replace(/^\n+/, ''),
+    };
+  }, [activeText]);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +189,8 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
   function resetForm() {
     setFile(null);
     setImageData(null);
+    setImageInfo(null);
+    setPreviewOpen(false);
     setDetection(null);
     setNpText('');
     setEnText('');
@@ -121,12 +200,12 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
     setMunicipality(DEFAULT_MUNICIPALITY);
     setMunicipalityChosen(false);
     setWard('');
-    setGeoNote('');
     setLocation('');
     setCitizenName('');
     setContact('');
     setExtra('');
-    setCoords(null);
+    setPicked(null);
+    setPhotoCoords(null);
     setRecommendation(null);
     setSimilar([]);
     setSubmitted(null);
@@ -143,9 +222,25 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
     setSimilar([]);
     setFile(picked);
 
+    // Offer the photo's GPS position as a location shortcut (non-blocking).
+    setPhotoCoords(null);
+    void extractExifGps(picked).then(setPhotoCoords);
+
     try {
       const data = await fileToBase64(picked);
       setImageData(data);
+
+      // Read the photo's dimensions for the evidence info strip (non-blocking).
+      setImageInfo(null);
+      const probe = new Image();
+      probe.onload = () =>
+        setImageInfo({
+          width: probe.naturalWidth,
+          height: probe.naturalHeight,
+          size: picked.size,
+          uploadedAt: new Date(),
+        });
+      probe.src = data.dataUrl;
       setCategorizing(true);
       const result = await categorizeImage(data);
       setDetection(result);
@@ -174,29 +269,38 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
     if (picked) void processFile(picked);
   }
 
+  /** Clear the photo and everything the AI derived from it (form fields stay). */
+  function handleRemoveImage() {
+    setFile(null);
+    setImageData(null);
+    setImageInfo(null);
+    setPreviewOpen(false);
+    setDetection(null);
+    setCategory('');
+    setSeverity('Medium');
+    setNpText('');
+    setEnText('');
+    setRecommendation(null);
+    setSimilar([]);
+    setPhotoCoords(null);
+    setError('');
+  }
+
   function handleDrop(e: React.DragEvent<HTMLLabelElement>) {
     e.preventDefault();
     const picked = e.dataTransfer.files?.[0];
     if (picked && picked.type.startsWith('image/')) void processFile(picked);
   }
 
-  // When a pin is dropped, reverse-geocode to auto-fill municipality (and ward when possible).
-  async function handlePickLocation(p: LatLng) {
-    setCoords(p);
-    setGeoNote('Detecting location…');
-    try {
-      const g = await reverseGeocode(p.lat, p.lng);
-      if (g.municipality) {
-        setMunicipality(g.municipality);
-        setMunicipalityChosen(true);
-        const validWards = wardsFor(g.municipality).map(String);
-        if (g.ward && validWards.includes(g.ward)) setWard(g.ward);
-        setGeoNote(`📍 Detected: ${g.municipality}${g.ward ? `, Ward ${g.ward}` : ''}`);
-      } else {
-        setGeoNote('Location pinned — municipality not auto-detected, please select it.');
-      }
-    } catch {
-      setGeoNote('');
+  // The picker resolves the address itself; sync its result into the form so
+  // municipality and ward auto-fill (the user can still override them below).
+  function handleLocationChange(loc: PickedLocation | null) {
+    setPicked(loc);
+    if (loc?.municipality) {
+      setMunicipality(loc.municipality);
+      setMunicipalityChosen(true);
+      const validWards = wardsFor(loc.municipality).map(String);
+      if (loc.ward && validWards.includes(loc.ward)) setWard(loc.ward);
     }
   }
 
@@ -207,7 +311,7 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
     try {
       const { nibedan: text } = await generateNibedan({
         category,
-        location,
+        location: location || picked?.address || '',
         ward,
         municipality,
         citizenName,
@@ -249,6 +353,10 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
       setError('Please select a category and ward before submitting.');
       return;
     }
+    if (!picked) {
+      setError('Please select the issue location.');
+      return;
+    }
     if (!reports.configured) {
       setError('Supabase is not configured. Add your credentials to frontend/.env (see README).');
       return;
@@ -264,8 +372,8 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
           {
             category,
             ward,
-            latitude: coords?.lat ?? null,
-            longitude: coords?.lng ?? null,
+            latitude: picked?.latitude ?? null,
+            longitude: picked?.longitude ?? null,
             description: detection?.description_en ?? extra,
           },
           existing
@@ -290,14 +398,15 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
         description_np: detection?.description_np ?? null,
         ward,
         municipality,
-        location: location || null,
-        latitude: coords?.lat ?? null,
-        longitude: coords?.lng ?? null,
+        location: location || picked?.address || null,
+        latitude: picked?.latitude ?? null,
+        longitude: picked?.longitude ?? null,
         reporter_name: citizenName || null,
         contact: contact || null,
         nibedan: npText || null,
         english_letter: enText || null,
         recommendation,
+        ai_confidence: detection?.confidence ?? null,
         image_url,
       });
       reports.prepend(saved);
@@ -361,7 +470,7 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
   const ready = !!detection;
 
   return (
-    <div className="px-4 py-10 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-12 lg:px-16">
       <div className="mb-10">
         <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl" style={{ color: NAVY }}>
           Report an Issue
@@ -397,51 +506,243 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
             </div>
 
             {!imageData ? (
-              <label
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#3b82f6]/40 bg-white px-6 py-14 text-center transition hover:bg-[#eff4ff]"
-              >
-                <span
-                  className="mb-4 flex h-20 w-20 items-center justify-center rounded-full shadow-sm transition group-hover:scale-110"
-                  style={{ background: '#dce9ff' }}
+              <>
+                <label
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                  className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#3b82f6]/40 bg-white px-6 py-14 text-center transition hover:bg-[#eff4ff]"
                 >
-                  <Icon name="photo_camera" className="text-4xl" filled={false} />
-                </span>
-                <span className="text-lg font-bold" style={{ color: NAVY }}>
-                  Drag &amp; drop a photo, or <span className="text-blue-600">click to browse</span>
-                </span>
-                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                  PNG / JPG up to 10MB
-                </span>
-                <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-              </label>
-            ) : (
-              <div className="relative overflow-hidden rounded-xl border border-slate-200">
-                <img src={imageData.dataUrl} alt="preview" className="h-56 w-full object-cover" />
-                <label className="absolute right-2.5 top-2.5 cursor-pointer rounded-lg bg-slate-900/60 px-3 py-1.5 text-xs font-bold text-white backdrop-blur transition hover:bg-slate-900/75">
-                  Replace
+                  <span
+                    className="mb-4 flex h-20 w-20 items-center justify-center rounded-full shadow-sm transition group-hover:scale-110"
+                    style={{ background: '#dce9ff' }}
+                  >
+                    <Icon name="photo_camera" className="text-4xl" filled={false} />
+                  </span>
+                  <span className="text-lg font-bold" style={{ color: NAVY }}>
+                    Drag &amp; drop a photo, or <span className="text-blue-600">click to browse</span>
+                  </span>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                    PNG / JPG up to 10MB
+                  </span>
                   <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                 </label>
-              </div>
-            )}
 
-            <div
-              className="mt-6 flex items-start gap-4 rounded-xl border border-slate-100 p-4"
-              style={{ background: '#eff4ff' }}
-            >
-              <span
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm"
-                style={{ color: NAVY }}
-              >
-                <Icon name="info" className="text-xl" />
-              </span>
-              <p className="text-sm font-medium leading-relaxed text-slate-600">
-                Clear photos of the location help us process your complaint faster. Make sure the
-                issue is clearly visible.
-              </p>
-            </div>
+                <div
+                  className="mt-6 flex items-start gap-4 rounded-xl border border-slate-100 p-4"
+                  style={{ background: '#eff4ff' }}
+                >
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm"
+                    style={{ color: NAVY }}
+                  >
+                    <Icon name="info" className="text-xl" />
+                  </span>
+                  <p className="text-sm font-medium leading-relaxed text-slate-600">
+                    Clear photos of the location help us process your complaint faster. Make sure
+                    the issue is clearly visible.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Uploaded photo — shrink-wrapped to the image so there's no dead space */}
+                <div className="hw-pop group relative mx-auto w-fit max-w-full overflow-hidden rounded-xl border border-slate-200 shadow-md transition-shadow duration-300 hover:shadow-lg sm:max-w-[75%]">
+                  <img
+                    src={imageData.dataUrl}
+                    alt="Uploaded evidence"
+                    className="block max-h-72 w-auto max-w-full transition-transform duration-300 group-hover:scale-[1.02]"
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-slate-900/45 to-transparent" />
+                  <span className="hw-pop absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-emerald-600/95 px-2.5 py-1 text-[11px] font-bold text-white shadow-md">
+                    ✓ Uploaded
+                  </span>
+                  <div className="absolute right-2.5 top-2.5 flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewOpen(true)}
+                      title="Preview"
+                      aria-label="Preview photo"
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/60 text-white shadow-md backdrop-blur transition hover:scale-105 hover:bg-slate-900/80"
+                    >
+                      <Icon name="visibility" className="text-[16px]" />
+                    </button>
+                    <label
+                      title="Replace"
+                      aria-label="Replace photo"
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-slate-900/60 text-white shadow-md backdrop-blur transition hover:scale-105 hover:bg-slate-900/80"
+                    >
+                      <Icon name="sync" className="text-[16px]" />
+                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      title="Remove"
+                      aria-label="Remove photo"
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/60 text-white shadow-md backdrop-blur transition hover:scale-105 hover:bg-rose-600/90"
+                    >
+                      <Icon name="delete" className="text-[16px]" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* AI analysis module */}
+                <div
+                  className="mt-5 overflow-hidden rounded-xl border border-slate-100"
+                  style={{ background: '#f8f9ff' }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm"
+                        style={{ color: NAVY }}
+                      >
+                        <Icon name="smart_toy" className="text-[18px]" />
+                      </span>
+                      <h3 className="text-sm font-extrabold" style={{ color: NAVY }}>
+                        AI Analysis
+                      </h3>
+                    </div>
+                    {categorizing ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700">
+                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" />
+                        Analyzing…
+                      </span>
+                    ) : detection ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                        ✓ Completed
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {detection ? (
+                    <div className="divide-y divide-slate-100 border-t border-slate-100 bg-white/70">
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <span className="text-xs font-bold text-slate-500">Detected Issue</span>
+                        <CategoryBadge category={detection.category} />
+                      </div>
+                      {detection.confidence != null && (
+                        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                          <span className="text-xs font-bold text-slate-500">AI Confidence</span>
+                          <span className="flex items-center gap-2.5">
+                            <span className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
+                              <span
+                                className="block h-full rounded-full bg-blue-600"
+                                style={{ width: `${detection.confidence}%` }}
+                              />
+                            </span>
+                            <span className="text-sm font-extrabold tabular-nums" style={{ color: NAVY }}>
+                              {detection.confidence}%
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <span className="text-xs font-bold text-slate-500">Severity</span>
+                        <SeverityBadge severity={detection.severity} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <span className="text-xs font-bold text-slate-500">Analysis Status</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
+                          <Icon name="check_circle" filled className="text-[14px]" />
+                          Completed
+                        </span>
+                      </div>
+                    </div>
+                  ) : categorizing ? (
+                    <div className="divide-y divide-slate-100 border-t border-slate-100 bg-white/70">
+                      {['Detected Issue', 'AI Confidence', 'Severity', 'Analysis Status'].map((l) => (
+                        <div key={l} className="flex items-center justify-between gap-3 px-4 py-3">
+                          <span className="text-xs font-bold text-slate-400">{l}</span>
+                          <span className="h-4 w-20 animate-pulse rounded-full bg-slate-200/80" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="border-t border-slate-100 bg-white/70 px-4 py-3 text-[13px] font-medium text-slate-500">
+                      Analysis unavailable — try replacing the photo.
+                    </p>
+                  )}
+                </div>
+
+                {/* Evidence information */}
+                <div className="mb-2.5 mt-5 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
+                  <Icon name="fact_check" className="text-base" />
+                  Evidence Information
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <EvidenceStat
+                    icon="aspect_ratio"
+                    label="Resolution"
+                    value={imageInfo ? `${imageInfo.width} × ${imageInfo.height}` : '—'}
+                    sub={imageInfo ? 'px' : undefined}
+                  />
+                  <EvidenceStat
+                    icon="hard_drive"
+                    label="File Size"
+                    value={imageInfo ? formatBytes(imageInfo.size) : '—'}
+                    sub={imageData.mediaType.split('/')[1]?.toUpperCase()}
+                  />
+                  <EvidenceStat
+                    icon="schedule"
+                    label="Uploaded"
+                    value={
+                      imageInfo &&
+                      imageInfo.uploadedAt.toDateString() === new Date().toDateString()
+                        ? 'Today'
+                        : imageInfo
+                          ? imageInfo.uploadedAt.toLocaleDateString()
+                          : '—'
+                    }
+                    sub={
+                      imageInfo
+                        ? imageInfo.uploadedAt.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : undefined
+                    }
+                  />
+                  <EvidenceStat
+                    icon="location_on"
+                    label="GPS"
+                    value={photoCoords ? 'Available ✓' : 'Not Available'}
+                    sub={
+                      photoCoords
+                        ? `${photoCoords.lat.toFixed(4)}, ${photoCoords.lng.toFixed(4)}`
+                        : 'no EXIF data'
+                    }
+                    tone={photoCoords ? 'good' : undefined}
+                  />
+                </div>
+              </>
+            )}
           </section>
+
+          {/* Full-size photo preview */}
+          {previewOpen && imageData && (
+            <div
+              className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/85 p-6"
+              role="dialog"
+              aria-label="Photo preview"
+              onClick={() => setPreviewOpen(false)}
+            >
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(false)}
+                aria-label="Close preview"
+                className="absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+              >
+                <Icon name="close" className="text-2xl" />
+              </button>
+              <img
+                src={imageData.dataUrl}
+                alt="Evidence preview"
+                onClick={(e) => e.stopPropagation()}
+                className="max-h-full max-w-full rounded-xl shadow-2xl"
+              />
+            </div>
+          )}
 
           {/* 2. AI detection */}
           {categorizing && (
@@ -497,26 +798,29 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
                 <RecommendationCard recommendation={recommendation} loading={recommending} />
               )}
 
-              {/* 3. Pin location */}
+              {/* 3. Location */}
               <section className="card p-6 sm:p-8">
-                <h2 className="mb-4 flex items-center gap-3 text-xl font-bold" style={{ color: NAVY }}>
-                  <StepBadge n={3} /> Pin Location{' '}
-                  <span className="text-xs font-semibold text-slate-400">optional</span>
+                <h2 className="mb-1.5 flex items-center gap-3 text-xl font-bold" style={{ color: NAVY }}>
+                  <StepBadge n={3} /> Where is the issue located?
                 </h2>
+                <p className="mb-5 pl-11 text-sm text-slate-500">
+                  Share your location or search for the place — no map skills needed.
+                </p>
                 <Suspense
                   fallback={
-                    <div className="flex h-[220px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-400">
+                    <div className="flex h-[300px] items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-sm text-slate-400">
                       Loading map…
                     </div>
                   }
                 >
-                  <LocationPicker value={coords} onChange={handlePickLocation} />
+                  <LocationPicker
+                    value={picked}
+                    onChange={handleLocationChange}
+                    landmark={location}
+                    onLandmarkChange={setLocation}
+                    photoCoords={photoCoords}
+                  />
                 </Suspense>
-                {geoNote && (
-                  <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
-                    {geoNote}
-                  </p>
-                )}
               </section>
 
               {/* 4. Issue details */}
@@ -553,6 +857,17 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
                       ))}
                     </select>
                   </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Exact location / landmark">
+                      <input
+                        type="text"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        placeholder="e.g. Buspark, near Suryabinayak Temple gate…"
+                        className="field-input"
+                      />
+                    </Field>
+                  </div>
                   <Field label="Issue Category">
                     <select
                       value={category}
@@ -597,17 +912,6 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
                       className="field-input"
                     />
                   </Field>
-                  <div className="sm:col-span-2">
-                    <Field label="Specific Location / Landmark">
-                      <input
-                        type="text"
-                        value={location}
-                        onChange={(e) => setLocation(e.target.value)}
-                        placeholder="e.g. Near Bhatbhateni, Naya Bazaar"
-                        className="field-input"
-                      />
-                    </Field>
-                  </div>
                   <div className="sm:col-span-2">
                     <Field label="Extra details">
                       <textarea
@@ -696,13 +1000,47 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
             ) : activeText ? (
               <div>
                 <div className="max-h-[48vh] overflow-auto bg-[#fcfcfd] p-[18px]">
-                  <div className="card p-5 shadow-none">
+                  <div className="card p-6 pt-5 shadow-none" style={{ borderTop: `3px solid ${NAVY}` }}>
+                    <LetterheadHeader
+                      municipality={municipalityChosen ? municipality : ''}
+                      ward={ward}
+                      lang={lang}
+                    />
+                    <div className="mb-4 mt-3" style={{ borderTop: `3px double ${NAVY}` }} />
+                    {letter.date && (
+                      <p
+                        className={`mb-3 text-right text-[14px] text-slate-800 ${
+                          lang === 'np' ? 'np-body' : 'font-sans'
+                        }`}
+                      >
+                        {letter.date}
+                      </p>
+                    )}
+                    {letter.before && (
+                      <pre
+                        className={`whitespace-pre-wrap text-[14px] text-slate-800 ${
+                          lang === 'np' ? 'np-body' : 'font-sans leading-loose'
+                        }`}
+                      >
+                        {letter.before}
+                      </pre>
+                    )}
+                    {letter.subject && (
+                      <p
+                        className={`my-4 text-center text-[14px] font-bold ${
+                          lang === 'np' ? 'np-body' : 'font-sans'
+                        }`}
+                        style={{ color: NAVY }}
+                      >
+                        {letter.subject}
+                      </p>
+                    )}
                     <pre
                       className={`whitespace-pre-wrap text-[14px] text-slate-800 ${
                         lang === 'np' ? 'np-body' : 'font-sans leading-loose'
                       }`}
                     >
-                      {activeText}
+                      {letter.after}
                     </pre>
                   </div>
                 </div>
@@ -832,6 +1170,57 @@ function LangTab({
 }
 
 /**
+ * Official नेपाल सरकार letterhead header: emblem top-left, flag top-right,
+ * centered government + municipality + ward-office lines. Shared by the
+ * empty-state preview and the generated-letter preview.
+ */
+function LetterheadHeader({
+  municipality,
+  ward,
+  lang = 'np',
+}: {
+  municipality: string;
+  ward: string;
+  lang?: 'np' | 'en';
+}) {
+  const en = lang === 'en';
+  return (
+    <div className="relative">
+      {/* Government of Nepal emblem — top-left corner */}
+      <img
+        src="/nepal-emblem.svg"
+        alt="Government of Nepal emblem"
+        className="absolute left-0 top-0 h-12 w-12 object-contain"
+      />
+      {/* Flag of Nepal — top-right corner */}
+      <img
+        src="/nepal-flag.svg"
+        alt="Flag of Nepal"
+        className="absolute right-0 top-0 h-12 w-auto object-contain"
+      />
+
+      <div className="flex min-h-[3rem] flex-col items-center px-14 text-center">
+        <p className={`${en ? '' : 'np '}mt-1 text-[15px] font-bold leading-tight`} style={{ color: NAVY }}>
+          {en ? 'Government of Nepal' : 'नेपाल सरकार'}
+        </p>
+        {municipality ? (
+          <p className={`${en ? '' : 'np '}text-[13px] font-bold leading-tight`} style={{ color: NAVY }}>
+            {en ? municipality : municipalityNp(municipality)}
+          </p>
+        ) : (
+          <p className="np text-[13px] font-bold leading-tight text-slate-300">
+            …………… नगरपालिका
+          </p>
+        )}
+        <p className={`${en ? '' : 'np '}text-[12px] font-semibold text-slate-500`}>
+          {en ? `Ward No. ${ward || '…'} Office` : `वडा नं. ${ward || '…'} को कार्यालय`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Decorative empty-state for the letter preview: a faux official नेपाल सरकार
  * ward-office letterhead so users see what the generated nibedan will look like.
  */
@@ -842,19 +1231,6 @@ function NibedanLetterhead({ municipality, ward }: { municipality: string; ward:
         className="relative mx-auto max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white px-7 pb-7 pt-6 shadow-sm"
         style={{ borderTop: `3px solid ${NAVY}` }}
       >
-        {/* Government of Nepal emblem — top-left corner */}
-        <img
-          src="/nepal-emblem.svg"
-          alt="Government of Nepal emblem"
-          className="absolute left-4 top-4 h-12 w-12 object-contain"
-        />
-        {/* Flag of Nepal — top-right corner */}
-        <img
-          src="/nepal-flag.svg"
-          alt="Flag of Nepal"
-          className="absolute right-4 top-4 h-12 w-auto object-contain"
-        />
-
         {/* DRAFT watermark */}
         <span
           className="np pointer-events-none absolute -right-6 top-24 rotate-12 text-5xl font-extrabold opacity-[0.05]"
@@ -863,24 +1239,7 @@ function NibedanLetterhead({ municipality, ward }: { municipality: string; ward:
           नमुना
         </span>
 
-        {/* Letterhead */}
-        <div className="flex flex-col items-center text-center">
-          <p className="np mt-1 text-[15px] font-bold leading-tight" style={{ color: NAVY }}>
-            नेपाल सरकार
-          </p>
-          {municipality ? (
-            <p className="np text-[13px] font-bold leading-tight" style={{ color: NAVY }}>
-              {municipalityNp(municipality)}
-            </p>
-          ) : (
-            <p className="np text-[13px] font-bold leading-tight text-slate-300">
-              …………… नगरपालिका
-            </p>
-          )}
-          <p className="np text-[12px] font-semibold text-slate-500">
-            वडा नं. {ward || '…'} को कार्यालय
-          </p>
-        </div>
+        <LetterheadHeader municipality={municipality} ward={ward} />
 
         <div className="my-3" style={{ borderTop: `3px double ${NAVY}` }} />
 

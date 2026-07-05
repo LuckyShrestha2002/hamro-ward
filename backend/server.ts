@@ -7,11 +7,11 @@ const PORT = process.env.PORT || 5174;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-// Models. Currently using FREE OpenRouter models so the app runs without paid
-// credits. Once you add credit, switch both to 'anthropic/claude-sonnet-4.5'
-// for the best quality (it does both vision and text).
-const VISION_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free'; // categorize (needs image input)
-const TEXT_MODEL = 'google/gemma-4-31b-it:free'; // nibedan + recommendation (good Nepali)
+// Models. The key has paid credit, so both use Claude Sonnet 4.5 — it handles
+// vision (categorize) and text (nibedan/recommendation) with the best Nepali
+// quality. Small key balance: keep max_tokens capped (1500) on every call.
+const VISION_MODEL = 'anthropic/claude-sonnet-4.5'; // categorize (needs image input)
+const TEXT_MODEL = 'anthropic/claude-sonnet-4.5'; // nibedan + recommendation
 
 // Allow large base64 image payloads.
 app.use(cors());
@@ -46,8 +46,8 @@ async function callOpenRouter(
     throw new Error('Server is missing OPENROUTER_API_KEY. Add it to backend/.env.');
   }
 
-  // Free models are shared and occasionally rate-limited (429) or briefly
-  // unavailable (5xx); retry a few times with backoff before giving up.
+  // OpenRouter can occasionally rate-limit (429) or be briefly unavailable
+  // (5xx); retry a few times with backoff before giving up.
   let response: Awaited<ReturnType<typeof fetch>> | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     response = await fetch(OPENROUTER_URL, {
@@ -103,16 +103,16 @@ function errorMessage(err: unknown): string {
 }
 
 const CATEGORIZE_SYSTEM_PROMPT =
-  "You identify civic infrastructure problems in Nepal from a photo. The possible categories are exactly: 'Pothole / Road', 'Streetlight', 'Water Supply', 'Waste Management', or 'Other'. Respond ONLY with a valid JSON object, no markdown, no backticks, in this shape: {\"category\": \"...\", \"description_en\": \"one short sentence\", \"description_np\": \"same description in Nepali\", \"severity\": \"Low\" | \"Medium\" | \"High\"}";
+  "You identify civic infrastructure problems in Nepal from a photo. The possible categories are exactly: 'Pothole / Road', 'Streetlight', 'Water Supply', 'Waste Management', or 'Other'. Respond ONLY with a valid JSON object, no markdown, no backticks, in this shape: {\"category\": \"...\", \"description_en\": \"one short sentence\", \"description_np\": \"same description in Nepali\", \"severity\": \"Low\" | \"Medium\" | \"High\", \"confidence\": <integer 0-100: how certain you are that the category is correct — be honest, use lower values for unclear or ambiguous photos>}";
 
 const RECOMMEND_SYSTEM_PROMPT =
   "You are a municipal operations advisor in Nepal. Given a civic problem's category, severity, and description, recommend how the ward office should respond. Respond ONLY with a valid JSON object, no markdown, no backticks, in this shape: {\"recommended_action\": \"one short actionable sentence\", \"suggested_priority\": \"Low\" | \"Medium\" | \"High\", \"urgency\": \"a short response-time phrase, e.g. 'Within 48 hours'\"}";
 
 const NIBEDAN_SYSTEM_PROMPT =
-  "You write a formal Nepali nibedan (निवेदन) for a citizen reporting a civic problem to their ward office. Use correct, respectful formal Nepali and the standard nibedan structure: a date line (मिति); addressee 'श्रीमान् वडा अध्यक्षज्यू,' then the ward office and municipality; a subject line 'विषय:' stating the problem briefly; salutation 'महोदय,'; a body that politely describes the problem, its location, and the harm it causes and requests prompt action; and a closing 'निवेदक,' followed by the citizen's name, address/ward, and contact. Use the details provided. Where a detail is missing, leave a clear blank like '[तपाईंको नाम]' for the user to fill. Respond with ONLY the nibedan text, nothing else.";
+  "You write a formal Nepali nibedan (निवेदन) for a citizen reporting a civic problem to their ward office. Use correct, respectful formal Nepali and the standard nibedan structure: addressee 'श्रीमान् वडा अध्यक्षज्यू,' then the ward office and municipality; a subject line 'विषय:' stating the problem briefly; salutation 'महोदय,'; a body that politely describes the problem, its location, and the harm it causes and requests prompt action; and a closing 'निवेदक,' followed by the citizen's name, address/ward, and contact. Do NOT include a मिति (date) line — the document letterhead already carries the submission date; never invent a date or leave a bracketed date placeholder. Use the details provided. Where another detail is missing, leave a clear blank like '[तपाईंको नाम]' for the user to fill. Respond with ONLY the nibedan text, nothing else.";
 
 const ENGLISH_LETTER_SYSTEM_PROMPT =
-  "You write a formal English complaint letter for a citizen reporting a civic problem to their ward office in Nepal. Use a standard formal letter structure: a date line; addressee 'To, The Ward Chairperson,' then the ward number and municipality; a subject line 'Subject:' stating the problem briefly; salutation 'Respected Sir/Madam,'; a body that politely describes the problem, its location, and the harm it causes and requests prompt action; and a closing 'Yours faithfully,' followed by the citizen's name, address/ward, and contact. Use the details provided. Where a detail is missing, leave a clear blank like '[Your Name]' for the user to fill. Respond with ONLY the letter text, nothing else.";
+  "You write a formal English complaint letter for a citizen reporting a civic problem to their ward office in Nepal. Use a standard formal letter structure: addressee 'To, The Ward Chairperson,' then the ward number and municipality; a subject line 'Subject:' stating the problem briefly; salutation 'Respected Sir/Madam,'; a body that politely describes the problem, its location, and the harm it causes and requests prompt action; and a closing 'Yours faithfully,' followed by the citizen's name, address/ward, and contact. Do NOT include a date line — the document letterhead already carries the submission date; never invent a date or leave a bracketed date placeholder. Use the details provided. Where another detail is missing, leave a clear blank like '[Your Name]' for the user to fill. Respond with ONLY the letter text, nothing else.";
 
 // POST /api/categorize — identify a civic problem from a photo.
 app.post('/api/categorize', async (req: Request, res: Response) => {
@@ -144,12 +144,16 @@ app.post('/api/categorize', async (req: Request, res: Response) => {
       severity: 'Medium',
     };
 
-    let result: unknown;
+    let result: Record<string, unknown>;
     try {
-      result = JSON.parse(stripFences(raw));
+      result = JSON.parse(stripFences(raw)) as Record<string, unknown>;
     } catch {
       result = fallback;
     }
+
+    // Normalize confidence to an integer 0–100, or null when absent/invalid.
+    const c = Number(result.confidence);
+    result.confidence = Number.isFinite(c) ? Math.min(100, Math.max(0, Math.round(c))) : null;
 
     return res.json(result);
   } catch (err) {
@@ -231,6 +235,9 @@ app.post('/api/nibedan', async (req: Request, res: Response) => {
 // Map a free-text address to one of the supported Kathmandu Valley municipalities.
 function detectMunicipality(blob: string): string | null {
   const s = blob.toLowerCase();
+  // Suryabinayak first: it's in Bhaktapur district, so its addresses usually
+  // mention "Bhaktapur" too.
+  if (s.includes('suryabinayak') || s.includes('surya binayak')) return 'Suryabinayak Municipality';
   if (s.includes('bhaktapur')) return 'Bhaktapur Municipality';
   if (s.includes('lalitpur') || s.includes('patan')) return 'Lalitpur Metropolitan City';
   if (s.includes('kathmandu')) return 'Kathmandu Metropolitan City';
@@ -263,10 +270,13 @@ app.get('/api/reverse-geocode', async (req: Request, res: Response) => {
 
     const municipality = detectMunicipality(blob);
 
-    // Try to pull a ward number out of any address field (rarely present).
+    // Try to pull a ward number out of any address field. Nominatim usually
+    // encodes it as "<City>-<ward>" (e.g. "Kathmandu-14"); "Ward No. X" is rare.
     let ward: string | null = null;
     for (const v of Object.values(address)) {
-      const m = String(v).match(/ward\s*(?:no\.?)?\s*(\d{1,2})/i);
+      const m =
+        String(v).match(/ward\s*(?:no\.?)?\s*(\d{1,2})/i) ??
+        String(v).match(/(?:kathmandu|lalitpur|bhaktapur|patan|suryabinayak)\s*-\s*(\d{1,2})\b/i);
       if (m) {
         ward = m[1];
         break;
@@ -277,6 +287,51 @@ app.get('/api/reverse-geocode', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[/api/reverse-geocode]', errorMessage(err));
     return res.status(502).json({ error: errorMessage(err) || 'Reverse geocoding failed.' });
+  }
+});
+
+// GET /api/geocode-search?q=.. — Nominatim forward search scoped to the
+// Kathmandu Valley, powering the location picker's autocomplete. No key needed.
+app.get('/api/geocode-search', async (req: Request, res: Response) => {
+  try {
+    const q = String(req.query.q ?? '').trim();
+    if (q.length < 2) return res.json({ results: [] });
+
+    // viewbox = lon1,lat1,lon2,lat2 covering the Kathmandu Valley.
+    const url =
+      'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6' +
+      '&countrycodes=np&viewbox=85.15,27.55,85.55,27.85&bounded=1' +
+      `&q=${encodeURIComponent(q)}`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'HamroWard/1.0 (civic issue reporter; demo)',
+        'Accept-Language': 'en',
+      },
+    });
+    if (!r.ok) throw new Error(`Nominatim error ${r.status}`);
+
+    const data = (await r.json()) as Array<{
+      display_name?: string;
+      lat?: string;
+      lon?: string;
+      type?: string;
+    }>;
+    const results = data
+      .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)))
+      .map((p) => {
+        const display = p.display_name ?? '';
+        return {
+          name: display.split(',')[0]?.trim() || display,
+          display,
+          lat: Number(p.lat),
+          lon: Number(p.lon),
+          type: p.type ?? null,
+        };
+      });
+    return res.json({ results });
+  } catch (err) {
+    console.error('[/api/geocode-search]', errorMessage(err));
+    return res.status(502).json({ error: errorMessage(err) || 'Place search failed.' });
   }
 });
 
