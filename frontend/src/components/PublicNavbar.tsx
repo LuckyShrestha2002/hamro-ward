@@ -27,7 +27,7 @@ export default function PublicNavbar() {
         <div className="flex flex-shrink-0 items-center gap-3">
           <Link
             to="/admin"
-            className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[#4A5A78] transition hover:text-[#1a365d] sm:inline-flex"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[#4A5A78] transition hover:text-[#1a365d]"
             title="Ward authority login"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">

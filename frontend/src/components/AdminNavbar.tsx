@@ -121,7 +121,9 @@ export default function AdminNavbar({ reports }: { reports: UseReports }) {
             {notifOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={closeNotif} />
-                <div className="absolute right-0 top-full z-20 mt-2 w-[380px] max-w-[92vw] overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
+                {/* max-w accounts for the dropdown being anchored to the bell,
+                    ~84px in from the right screen edge on phones. */}
+                <div className="absolute right-0 top-full z-20 mt-2 w-[380px] max-w-[calc(100vw-84px)] overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl">
                   <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
                     <span className="text-sm font-extrabold text-[#1a365d]">Notifications</span>
                     {unreadCount > 0 && (

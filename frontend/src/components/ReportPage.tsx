@@ -292,8 +292,11 @@ export default function ReportPage({ reports }: { reports: UseReports }) {
     if (picked && picked.type.startsWith('image/')) void processFile(picked);
   }
 
-  // The picker resolves the address itself; sync its result into the form so
-  // municipality and ward auto-fill (the user can still override them below).
+  // The picker resolves the address itself; sync municipality + ward into the
+  // form (the user can still override them below). The exact location /
+  // landmark field is deliberately NOT auto-filled — the geocoded address is
+  // too coarse (just municipality + ward), so the citizen types the precise
+  // spot themselves.
   function handleLocationChange(loc: PickedLocation | null) {
     setPicked(loc);
     if (loc?.municipality) {

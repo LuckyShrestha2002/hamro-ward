@@ -278,7 +278,7 @@ app.get('/api/reverse-geocode', async (req: Request, res: Response) => {
         String(v).match(/ward\s*(?:no\.?)?\s*(\d{1,2})/i) ??
         String(v).match(/(?:kathmandu|lalitpur|bhaktapur|patan|suryabinayak)\s*-\s*(\d{1,2})\b/i);
       if (m) {
-        ward = m[1];
+        ward = String(parseInt(m[1], 10)); // "03" → "3", matching the form's ward values
         break;
       }
     }
