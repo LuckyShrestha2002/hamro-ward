@@ -90,9 +90,9 @@ export default function LandingPage() {
             </h1>
 
             <p className="mb-9 max-w-[560px] text-lg font-medium leading-relaxed text-[#4A5A78]">
-              Upload a photo of local issues — broken street lights, waste, damaged roads, or leaks.
-              Our AI instantly generates an official{' '}
-              <span className="font-bold text-[#1a365d]">Nibedan</span> and sends it to your Ward
+              Upload a photo of local issues like broken street lights, waste, damaged roads, or
+              leaks. Our AI instantly generates an official{' '}
+              <span className="np font-bold text-[#1a365d]">निवेदन</span> and sends it to your Ward
               Office for action.
             </p>
 
